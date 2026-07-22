@@ -10,3 +10,10 @@ uv.lock
 
 # Virtual environments
 .venv
+node_modules
+dist
+.vite
+*.local
+*.tsbuildinfo
+HTML/__pycache__
+HTML/venv

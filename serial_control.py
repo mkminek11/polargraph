@@ -16,15 +16,15 @@ from typing import Any, Callable
 from serial import Serial
 import motion_control as motion
 
-MAX_LOG_LINES = 200
 SMILEY_POINT_DELAY_SECONDS = 0.05  # pacing between queued moves; replace with a real ACK handshake once firmware exists
+MAX_LOG_LINES = 200
 
 serial_lock = threading.Lock()
 motion_lock = threading.Lock()
 
 busy = {"value": False}
+log_update_fn: Callable[[], None] | None = None
 log = []
-
 
 class State:
     connection: Serial | None = None
@@ -36,8 +36,8 @@ def _log(text: str) -> None:
     log.append({"text": text, "time": time.time()})
 
     if len(log) > MAX_LOG_LINES: del log[: len(log) - MAX_LOG_LINES]
+    if log_update_fn is not None: log_update_fn()
 
-    
 def _reader_loop(ser: Serial) -> None:
     """ Background thread: streams anything the Arduino sends back into the log. """
 

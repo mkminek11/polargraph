@@ -5,7 +5,8 @@ import serial.tools.list_ports
 
 from flask import Flask, jsonify, render_template, request
 from flask_sse import sse
-from serial_control import State, _reader_loop, _send_steps, serial_lock, motion_lock, busy, _log, log, _run_locked, SMILEY_POINT_DELAY_SECONDS
+from serial_control import State, _reader_loop, _send_steps, _log, log, serial_lock, motion_lock, busy, _run_locked
+import serial_control
 
 import motion_control
 from motion_control import Polargraph
@@ -14,19 +15,27 @@ app = Flask(__name__, static_folder=".", static_url_path="")
 app.config["REDIS_URL"] = "redis://localhost"
 app.register_blueprint(sse, url_prefix='/stream')
 
-def update(x: float, y: float) -> None:
+def update_pos() -> None:
     sse.publish({
-        "x": x,
-        "y": y,
-        "connected": State.connection is not None and State.connection.is_open,
-        "port": State.port,
-        "baudrate": State.baudrate,
-        "busy": busy["value"]
-    }, type='status')
-    _log(f"Position updated: x={x:.2f}, y={y:.2f}")
+        "x": pg.x,
+        "y": pg.y
+    }, type='position')
+
+def update() -> None:
+    with serial_lock:
+        sse.publish({
+            "connected": State.connection is not None and State.connection.is_open,
+            "port": State.port,
+            "baudrate": State.baudrate,
+            "busy": busy["value"],
+        }, type='status')
+
+def update_log() -> None:
+    sse.publish({"log": log[-100:]}, type='log')
 
 pg = Polargraph()
-pg.configure(_send_steps, update)
+pg.configure(_send_steps, update_pos)
+serial_control.log_update_fn = update_log
 
 
 @app.route("/")
@@ -38,26 +47,6 @@ def index():
 def list_ports():
     ports = serial.tools.list_ports.comports()
     return jsonify([{"device": p.device, "description": p.description} for p in ports])
-
-
-@app.route("/api/status")
-def status():
-    with serial_lock:
-        connected = State.connection is not None and State.connection.is_open
-        return jsonify(
-            {
-                "connected": connected,
-                "port": State.port,
-                "baudrate": State.baudrate,
-                "busy": busy["value"],
-            }
-        )
-
-
-@app.route("/api/position")
-def position():
-    x, y = pg.position
-    return jsonify({"x": x, "y": y})
 
 
 @app.route("/api/connect", methods=["POST"])
@@ -134,12 +123,12 @@ def home():
     return jsonify({"ok": True, "position": result})
 
 
-def _draw_smiley_worker():
+def _draw_smiley_worker() -> None:
     try:
         _log("Drawing smiley...")
         for x, y in motion_control.generate_smiley_path():
             pg.move_to(x, y)
-            time.sleep(SMILEY_POINT_DELAY_SECONDS)
+            time.sleep(serial_control.SMILEY_POINT_DELAY_SECONDS)
         _log("Smiley complete")
     except motion_control.MotionError as e:
         _log(f"Smiley aborted: {e}")
@@ -155,11 +144,6 @@ def draw_smiley():
     busy["value"] = True
     threading.Thread(target=_draw_smiley_worker, daemon=True).start()
     return jsonify({"ok": True})
-
-
-@app.route("/api/log")
-def get_log():
-    return jsonify(log[-100:])
 
 
 if __name__ == "__main__":

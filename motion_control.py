@@ -46,6 +46,14 @@ class Polargraph:
         self._send_steps_fn: Callable[[int, int], tuple[bool, str | None]] | None = None
         self._on_change_fn: Callable[[float, float], None] | None = None
 
+    @property
+    def x(self) -> float:
+        return self.position[0]
+
+    @property
+    def y(self) -> float:
+        return self.position[1]
+
     def configure(self, send_steps_fn: Callable, on_change_fn: Callable) -> None:
         """ send_steps_fn(left_absolute_steps: int, right_absolute_steps: int) -> (ok: bool, error: str|None) """
         self._send_steps_fn = send_steps_fn

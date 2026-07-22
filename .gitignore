@@ -1,3 +1,11 @@
+
+node_modules
+dist
+.vite
+*.local
+*.tsbuildinfo
+HTML/__pycache__
+HTML/venv
 # Python-generated files
 __pycache__/
 *.py[oc]
@@ -7,6 +15,6 @@ wheels/
 *.egg-info
 .vscode/
 uv.lock
-
+.claude
 # Virtual environments
 .venv

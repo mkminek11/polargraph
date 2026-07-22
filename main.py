@@ -4,14 +4,12 @@ import time
 import serial.tools.list_ports
 
 from flask import Flask, jsonify, render_template, request
-from flask_sse import sse
 from serial_control import State, _reader_loop, _send_steps, serial_lock, motion_lock, busy, _log, log, _run_locked, SMILEY_POINT_DELAY_SECONDS
 
 import motion_control
 from motion_control import Polargraph
 
 app = Flask(__name__, static_folder=".", static_url_path="")
-app.register_blueprint(sse, )
 
 pg = Polargraph()
 pg.configure(_send_steps)

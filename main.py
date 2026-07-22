@@ -11,10 +11,22 @@ import motion_control
 from motion_control import Polargraph
 
 app = Flask(__name__, static_folder=".", static_url_path="")
-app.register_blueprint(sse, )
+app.config["REDIS_URL"] = "redis://localhost"
+app.register_blueprint(sse, url_prefix='/stream')
+
+def update(x: float, y: float) -> None:
+    sse.publish({
+        "x": x,
+        "y": y,
+        "connected": State.connection is not None and State.connection.is_open,
+        "port": State.port,
+        "baudrate": State.baudrate,
+        "busy": busy["value"]
+    }, type='status')
+    _log(f"Position updated: x={x:.2f}, y={y:.2f}")
 
 pg = Polargraph()
-pg.configure(_send_steps)
+pg.configure(_send_steps, update)
 
 
 @app.route("/")

@@ -44,10 +44,12 @@ class Polargraph:
         self.left_length_mm = _distance(self.MOTOR_LEFT, self.HOME_POSITION)
         self.right_length_mm = _distance(self.MOTOR_RIGHT, self.HOME_POSITION)
         self._send_steps_fn: Callable[[int, int], tuple[bool, str | None]] | None = None
+        self._on_change_fn: Callable[[float, float], None] | None = None
 
-    def configure(self, send_steps_fn: Callable[[int, int], tuple[bool, str | None]]) -> None:
+    def configure(self, send_steps_fn: Callable, on_change_fn: Callable) -> None:
         """ send_steps_fn(left_absolute_steps: int, right_absolute_steps: int) -> (ok: bool, error: str|None) """
         self._send_steps_fn = send_steps_fn
+        self._on_change_fn = on_change_fn
 
     def move_to(self, x: float, y: float) -> Coords:
         """ The only motion primitive: drive both cords so the gondola reaches
@@ -71,6 +73,10 @@ class Polargraph:
         self.left_length_mm = target_left_length
         self.right_length_mm = target_right_length
         self.position = target
+
+        if self._on_change_fn:
+            self._on_change_fn(x, y)
+            
         return (x, y)
 
     def jog(self, dx: float, dy: float) -> Coords:

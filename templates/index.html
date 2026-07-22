@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Polargraph Control</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+<body>
+
+<h1>Polargraph Control</h1>
+<p class="mono" style="color: var(--color-text-muted); font-size: 11px; margin-top: 0;">One Arduino, both motors</p>
+
+<div class="panel">
+  <h3>Connection</h3>
+  <div class="row">
+    <select id="portSelect"></select>
+    <button id="refreshPorts">Refresh</button>
+  </div>
+  <div class="row">
+    <input type="number" id="baudRate" value="115200" />
+  </div>
+  <div class="row">
+    <button class="primary" id="connectBtn" style="flex:1">Connect</button>
+    <button class="danger" id="disconnectBtn" style="flex:1" disabled>Disconnect</button>
+  </div>
+  <span class="status-pill" id="statusPill"><span class="status-dot"></span><span id="statusText">Disconnected</span></span>
+  <div class="position-readout mono" id="positionText">X 300.0 Y 400.0 mm</div>
+</div>
+
+<div class="panel">
+  <h3>Draw</h3>
+  <svg id="smileyPreview" width="120" height="120" viewBox="0 0 120 120">
+    <circle cx="60" cy="60" r="50" fill="none" stroke="#1b1c19" stroke-width="2"/>
+    <circle cx="40" cy="45" r="6" fill="#1b1c19"/>
+    <circle cx="80" cy="45" r="6" fill="#1b1c19"/>
+    <path d="M 30 70 A 32 32 0 0 0 90 70" fill="none" stroke="#1b1c19" stroke-width="2"/>
+  </svg>
+  <div class="row">
+    <button class="primary" id="drawSmileyBtn" style="flex:1">Draw smiley face</button>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Manual jog</h3>
+  <div class="row" style="justify-content:center">
+    <label class="mono" style="min-width:auto; color: var(--color-text-muted); font-size: 12px;">Step</label>
+    <select id="stepSize">
+      <option value="1">1 mm</option>
+      <option value="5">5 mm</option>
+      <option value="10" selected>10 mm</option>
+      <option value="25">25 mm</option>
+      <option value="50">50 mm</option>
+    </select>
+  </div>
+  <div class="jog-grid">
+    <div></div><button data-jog="0,-1">^</button><div></div>
+    <button data-jog="-1,0">&lt;</button><button id="homeBtn">&#8226;</button><button data-jog="1,0">&gt;</button>
+    <div></div><button data-jog="0,1">v</button><div></div>
+  </div>
+</div>
+
+<div class="panel">
+  <h3>Activity</h3>
+  <div class="log mono" id="log"></div>
+</div>
+
+<script>
+const el = (id) => document.getElementById(id);
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+function appendLog(text) {
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  const time = new Date().toLocaleTimeString();
+  line.textContent = `[${time}] ${text}`;
+  const log = el('log');
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function setButtonsDisabled(disabled) {
+  el('drawSmileyBtn').disabled = disabled;
+  el('homeBtn').disabled = disabled;
+  document.querySelectorAll('[data-jog]').forEach((b) => (b.disabled = disabled));
+}
+
+async function refreshPorts() {
+  const ports = await api('/api/ports');
+  const select = el('portSelect');
+  const previous = select.value;
+  select.innerHTML = '';
+  if (ports.length === 0) {
+    const opt = document.createElement('option');
+    opt.textContent = 'No ports found';
+    opt.value = '';
+    select.appendChild(opt);
+  }
+  for (const p of ports) {
+    const opt = document.createElement('option');
+    opt.value = p.device;
+    opt.textContent = p.description ? `${p.device} — ${p.description}` : p.device;
+    select.appendChild(opt);
+  }
+  if (previous) select.value = previous;
+}
+
+async function refreshStatus() {
+  const status = await api('/api/status');
+  const pill = el('statusPill');
+  const text = el('statusText');
+  pill.classList.toggle('connected', status.connected);
+  text.textContent = status.connected ? `Connected: ${status.port} @ ${status.baudrate}` : 'Disconnected';
+  el('connectBtn').disabled = status.connected;
+  el('disconnectBtn').disabled = !status.connected;
+  setButtonsDisabled(status.busy);
+  return status;
+}
+
+async function refreshPosition() {
+  try {
+    const pos = await api('/api/position');
+    el('positionText').textContent = `X ${pos.x.toFixed(1)} Y ${pos.y.toFixed(1)} mm`;
+  } catch (e) {
+    // ignore transient poll failures
+  }
+}
+
+let lastLogCount = 0;
+async function pollLog() {
+  try {
+    const entries = await api('/api/log');
+    for (const entry of entries.slice(lastLogCount)) appendLog(entry.text);
+    lastLogCount = entries.length;
+  } catch (e) {
+    // ignore transient poll failures
+  }
+}
+
+el('refreshPorts').addEventListener('click', refreshPorts);
+
+el('connectBtn').addEventListener('click', async () => {
+  const port = el('portSelect').value;
+  const baudrate = Number(el('baudRate').value) || 115200;
+  if (!port) { alert('Choose a port first'); return; }
+  try {
+    await api('/api/connect', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ port, baudrate }),
+    });
+    await refreshStatus();
+  } catch (e) {
+    alert('Connect failed: ' + e.message);
+  }
+});
+
+el('disconnectBtn').addEventListener('click', async () => {
+  await api('/api/disconnect', { method: 'POST' });
+  await refreshStatus();
+});
+
+el('homeBtn').addEventListener('click', async () => {
+  try {
+    await api('/api/home', { method: 'POST' });
+    refreshPosition();
+  } catch (e) {
+    alert(e.message);
+  }
+});
+
+document.querySelectorAll('[data-jog]').forEach((btn) => {
+  btn.addEventListener('click', async () => {
+    const [dxSign, dySign] = btn.dataset.jog.split(',').map(Number);
+    const step = Number(el('stepSize').value);
+    try {
+      await api('/api/jog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dx: dxSign * step, dy: dySign * step }),
+      });
+      refreshPosition();
+    } catch (e) {
+      alert(e.message);
+    }
+  });
+});
+
+el('drawSmileyBtn').addEventListener('click', async () => {
+  try {
+    await api('/api/draw-smiley', { method: 'POST' });
+  } catch (e) {
+    alert(e.message);
+  }
+});
+
+refreshPorts();
+refreshStatus();
+refreshPosition();
+setInterval(async () => {
+  await refreshStatus();
+  await refreshPosition();
+}, 1000);
+setInterval(pollLog, 800);
+</script>
+
+</body>
+</html>

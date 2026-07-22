@@ -129,6 +129,45 @@
 
 <script>
 const el = (id) => document.getElementById(id);
+const sse = new EventSource('/stream');
+
+sse.addEventListener('log', (e) => {
+  const data = JSON.parse(e.data);
+  appendLog(data.text);
+});
+
+sse.addEventListener('status', (e) => {
+  const data = JSON.parse(e.data);
+  const pill = el('statusPill');
+  const text = el('statusText');
+  pill.classList.toggle('connected', status.connected);
+  text.textContent = status.connected ? `Connected: ${status.port} @ ${status.baudrate}` : 'Disconnected';
+  el('connectBtn').disabled = status.connected;
+  el('disconnectBtn').disabled = !status.connected;
+  setButtonsDisabled(status.busy);
+
+  const calibrating = status.calibrating;
+  el('calibIdle').style.display = calibrating ? 'none' : 'block';
+  el('calibActive').style.display = calibrating ? 'block' : 'none';
+  // Can only start calibration when connected and the machine isn't otherwise busy.
+  el('calibStartBtn').disabled = !status.connected || status.busy;
+  if (calibrating && status.calib) {
+    document.querySelectorAll('[data-calib]').forEach((btn) => {
+      const [motor, action] = btn.dataset.calib.split(',');
+      btn.classList.toggle('calib-on', status.calib[motor] === action);
+    });
+  }
+  document.querySelectorAll('.motor-test').forEach((b) => {
+    b.disabled = !status.connected || status.busy;
+  });
+  return status;
+});
+
+sse.addEventListener('pos', (e) => {
+  const data = JSON.parse(e.data);
+  const pos = data.position;
+  el('positionText').textContent = `X ${pos.x.toFixed(1)} Y ${pos.y.toFixed(1)} mm`;
+});
 
 async function api(path, opts) {
   const res = await fetch(path, opts);
@@ -173,52 +212,7 @@ async function refreshPorts() {
   if (previous) select.value = previous;
 }
 
-async function refreshStatus() {
-  const status = await api('/api/status');
-  const pill = el('statusPill');
-  const text = el('statusText');
-  pill.classList.toggle('connected', status.connected);
-  text.textContent = status.connected ? `Connected: ${status.port} @ ${status.baudrate}` : 'Disconnected';
-  el('connectBtn').disabled = status.connected;
-  el('disconnectBtn').disabled = !status.connected;
-  setButtonsDisabled(status.busy);
-
-  const calibrating = status.calibrating;
-  el('calibIdle').style.display = calibrating ? 'none' : 'block';
-  el('calibActive').style.display = calibrating ? 'block' : 'none';
-  // Can only start calibration when connected and the machine isn't otherwise busy.
-  el('calibStartBtn').disabled = !status.connected || status.busy;
-  if (calibrating && status.calib) {
-    document.querySelectorAll('[data-calib]').forEach((btn) => {
-      const [motor, action] = btn.dataset.calib.split(',');
-      btn.classList.toggle('calib-on', status.calib[motor] === action);
-    });
-  }
-  document.querySelectorAll('.motor-test').forEach((b) => {
-    b.disabled = !status.connected || status.busy;
-  });
-  return status;
-}
-
-async function refreshPosition() {
-  try {
-    const pos = await api('/api/position');
-    el('positionText').textContent = `X ${pos.x.toFixed(1)} Y ${pos.y.toFixed(1)} mm`;
-  } catch (e) {
-    // ignore transient poll failures
-  }
-}
-
 let lastLogCount = 0;
-async function pollLog() {
-  try {
-    const entries = await api('/api/log');
-    for (const entry of entries.slice(lastLogCount)) appendLog(entry.text);
-    lastLogCount = entries.length;
-  } catch (e) {
-    // ignore transient poll failures
-  }
-}
 
 el('refreshPorts').addEventListener('click', refreshPorts);
 
@@ -344,13 +338,6 @@ document.querySelectorAll('[data-motorstep]').forEach((btn) => {
 });
 
 refreshPorts();
-refreshStatus();
-refreshPosition();
-setInterval(async () => {
-  await refreshStatus();
-  await refreshPosition();
-}, 1000);
-setInterval(pollLog, 800);
 </script>
 
 </body>

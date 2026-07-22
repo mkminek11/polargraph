@@ -9,7 +9,7 @@ from serial_control import State, _reader_loop, _send_steps, serial_lock, motion
 import motion_control
 from motion_control import Polargraph
 
-app = Flask(__name__, static_folder=".", static_url_path="")
+app = Flask(__name__)
 
 pg = Polargraph()
 pg.configure(_send_steps)
